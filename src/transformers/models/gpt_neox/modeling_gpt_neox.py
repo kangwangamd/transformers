@@ -39,6 +39,16 @@ from ...modeling_utils import PreTrainedModel
 from ...utils import logging
 from .configuration_gpt_neox import GPTNeoXConfig
 
+# add flash_attn interface
+try:
+    from flash_attn.flash_attn_interface import flash_attn_unpadded_func
+except ImportError:
+    flash_attn_unpadded_func = None
+# add flash_attn needed einops.rearrange
+try:
+    from einops import rearrange
+except ImportError:
+    rearrange = None
 
 logger = logging.get_logger(__name__)
 
@@ -246,6 +256,32 @@ class GPTNeoXAttention(nn.Module):
 
         query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
         key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
+
+        '''
+        use flash attention
+        '''
+        assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
+                                                      'e.g., with pip install flash-attn')
+        assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
+        value = value.view(batch_size * num_attention_heads, key_length, attn_head_size)
+        q, k, v = query.half(), key.half(), value.half()
+        assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
+        assert all((i.is_cuda for i in (q,k,v)))
+        q, k, v = [rearrange(x, 'b h s d -> b s h d') for x in [q, k, v]]
+        q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
+        seqlen_q = seqlen_k = query_length
+        cu_seqlens_q = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32,
+                                    device=q.device)
+        cu_seqlens_k = torch.arange(0, (batch_size + 1) * seqlen_k, step=seqlen_k, dtype=torch.int32,
+                        device=q.device)
+        is_causal = False
+        output = flash_attn_unpadded_func(
+            q, k, v, cu_seqlens_q, cu_seqlens_k, seqlen_q, seqlen_k,
+            dropout_p=0.0,
+            softmax_scale=False, causal=is_causal
+        )
+        attn_output = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
+        '''
         attn_scores = torch.zeros(
             batch_size * num_attention_heads,
             query_length,
@@ -282,7 +318,8 @@ class GPTNeoXAttention(nn.Module):
         attn_weights = self.attention_dropout(attn_weights)
 
         attn_output = torch.matmul(attn_weights, value)
-        return attn_output, attn_weights
+        '''
+        return attn_output, list() #attn_output, attn_weights
 
 
 def attention_mask_func(attention_scores, ltor_mask):
