@@ -254,6 +254,11 @@ class GPTNeoXAttention(nn.Module):
             self._init_bias(key_length, device=key.device)
         causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
 
+        q = rearrange(query, 'b h s d -> b s h d')
+        k = rearrange(key, 'b h s d -> b s h d')
+        v = rearrange(value, 'b h s d -> b s h d')
+        q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
+
         query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
         key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
 
@@ -263,12 +268,12 @@ class GPTNeoXAttention(nn.Module):
         assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
                                                       'e.g., with pip install flash-attn')
         assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
-        value = value.view(batch_size * num_attention_heads, key_length, attn_head_size)
-        q, k, v = query.half(), key.half(), value.half()
+        
+        q, k, v = q.half(), k.half(), v.half()
         assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
         assert all((i.is_cuda for i in (q,k,v)))
-        q, k, v = [rearrange(x, 'b h s d -> b s h d') for x in [q, k, v]]
-        q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
+        # q, k, v = [rearrange(x, 'b h s d -> b s h d') for x in [q, k, v]]
+        # q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
         seqlen_q = seqlen_k = query_length
         cu_seqlens_q = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32,
                                     device=q.device)
