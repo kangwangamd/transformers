@@ -254,6 +254,12 @@ class GPTNeoXAttention(nn.Module):
             self._init_bias(key_length, device=key.device)
         causal_mask = self.bias[:, :, key_length - query_length : key_length, :key_length]
 
+        '''
+        use flash attention
+        '''
+        assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
+                                                      'e.g., with pip install flash-attn')
+        assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
         q = rearrange(query, 'b h s d -> b s h d')
         k = rearrange(key, 'b h s d -> b s h d')
         v = rearrange(value, 'b h s d -> b s h d')
@@ -303,11 +309,7 @@ class GPTNeoXAttention(nn.Module):
         
         '''
         use flash attention
-        '''
-        assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
-                                                      'e.g., with pip install flash-attn')
-        assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
-        
+        '''        
         q, k, v = q.half(), k.half(), v.half()
         assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
         assert all((i.is_cuda for i in (q,k,v)))
