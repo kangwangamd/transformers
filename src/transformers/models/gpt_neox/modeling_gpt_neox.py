@@ -206,7 +206,10 @@ class GPTNeoXAttention(nn.Module):
         present = (key, value) if use_cache else None
 
         # Compute attention
-        attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask)
+        use_flash_att = True
+        attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask, use_flash_att)
+        # for _ in range(10):
+        #     at__, attn___ = self._attn(query, key, value, attention_mask, head_mask, use_flash_att)
 
         # Reshape outputs
         attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_size)
@@ -257,76 +260,101 @@ class GPTNeoXAttention(nn.Module):
         '''
         use flash attention
         '''
-        assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
+        # assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
                                                       'e.g., with pip install flash-attn')
-        assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
-        q = rearrange(query, 'b h s d -> b s h d')
-        k = rearrange(key, 'b h s d -> b s h d')
-        v = rearrange(value, 'b h s d -> b s h d')
-        q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
+        # assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
+        '''
+        for _ in range(100):
+            q_ = rearrange(query, 'b h s d -> b s h d')
+            k_ = rearrange(key, 'b h s d -> b s h d')
+            v_ = rearrange(value, 'b h s d -> b s h d')
+            q_, k_, v_ = [rearrange(x, 'b s ... -> (b s) ...') for x in [q_, k_, v_]]
+        '''
+        if use_flash_att:
+            q = rearrange(query, 'b h s d -> b s h d')
+            k = rearrange(key, 'b h s d -> b s h d')
+            v = rearrange(value, 'b h s d -> b s h d')
+            q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
         
-        '''
-        query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
-        key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
-
-        attn_scores = torch.zeros(
-            batch_size * num_attention_heads,
-            query_length,
-            key_length,
-            dtype=query.dtype,
-            device=key.device,
-        )
-        attn_scores = torch.baddbmm(
-            attn_scores,
-            query,
-            key.transpose(1, 2),
-            beta=1.0,
-            alpha=(torch.tensor(1.0, dtype=self.norm_factor.dtype, device=self.norm_factor.device) / self.norm_factor),
-        )
-        attn_scores = attn_scores.view(batch_size, num_attention_heads, query_length, key_length)
-
-        mask_value = torch.finfo(attn_scores.dtype).min
-        # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
-        # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
-        mask_value = torch.tensor(mask_value, dtype=attn_scores.dtype).to(attn_scores.device)
-        attn_scores = torch.where(causal_mask, attn_scores, mask_value)
-
-        if attention_mask is not None:
-            # Apply the attention mask
-            attn_scores = attn_scores + attention_mask
-
-        attn_weights = nn.functional.softmax(attn_scores, dim=-1)
-        attn_weights = attn_weights.to(value.dtype)
-
-        # Mask heads if we want to
-        if head_mask is not None:
-            attn_weights = attn_weights * head_mask
-
-        attn_weights = self.attention_dropout(attn_weights)
-
-        attn_output = torch.matmul(attn_weights, value)
-        '''
+        if not use_flash_att:
+            '''
+            for _ in range(100):
+                query_ = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
+                key_ = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
+            '''
+            query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
+            key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
+    
+            attn_scores = torch.zeros(
+                batch_size * num_attention_heads,
+                query_length,
+                key_length,
+                dtype=query.dtype,
+                device=key.device,
+            )
+            attn_scores = torch.baddbmm(
+                attn_scores,
+                query,
+                key.transpose(1, 2),
+                beta=1.0,
+                alpha=(torch.tensor(1.0, dtype=self.norm_factor.dtype, device=self.norm_factor.device) / self.norm_factor),
+            )
+            attn_scores = attn_scores.view(batch_size, num_attention_heads, query_length, key_length)
+    
+            mask_value = torch.finfo(attn_scores.dtype).min
+            # Need to be a tensor, otherwise we get error: `RuntimeError: expected scalar type float but found double`.
+            # Need to be on the same device, otherwise `RuntimeError: ..., x and y to be on the same device`
+            mask_value = torch.tensor(mask_value, dtype=attn_scores.dtype).to(attn_scores.device)
+            attn_scores = torch.where(causal_mask, attn_scores, mask_value)
+    
+            if attention_mask is not None:
+                # Apply the attention mask
+                attn_scores = attn_scores + attention_mask
+    
+            attn_weights = nn.functional.softmax(attn_scores, dim=-1)
+            attn_weights = attn_weights.to(value.dtype)
+    
+            # Mask heads if we want to
+            if head_mask is not None:
+                attn_weights = attn_weights * head_mask
+    
+            attn_weights = self.attention_dropout(attn_weights)
+            attn_output = torch.matmul(attn_weights, value)
+            return attn_output, attn_weights
         
-        '''
-        use flash attention
-        '''        
-        q, k, v = q.half(), k.half(), v.half()
-        assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
-        assert all((i.is_cuda for i in (q,k,v)))
-        seqlen_q = seqlen_k = query_length
-        cu_seqlens_q = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32,
-                                    device=q.device)
-        cu_seqlens_k = torch.arange(0, (batch_size + 1) * seqlen_k, step=seqlen_k, dtype=torch.int32,
-                        device=q.device)
-        is_causal = False
-        output = flash_attn_unpadded_func(
-            q, k, v, cu_seqlens_q, cu_seqlens_k, seqlen_q, seqlen_k,
-            dropout_p=0.0,
-            softmax_scale=False, causal=is_causal
-        )
-        attn_output = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
-        attn_output = rearrange(attn_output, 'b s h d -> b h s d')
-        return attn_output, list() #attn_output, attn_weights
+        if use_flash_att:
+            '''
+            use flash attention
+            '''
+            # for _ in range(10):
+            #    q_, k_, v_ = q.half(), k.half(), v.half()
+            q, k, v = q.half(), k.half(), v.half()
+            # assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
+            # assert all((i.is_cuda for i in (q,k,v)))
+            seqlen_q = seqlen_k = query_length
+            '''
+            for _ in range(100):
+                cu_seqlens_q_ = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32, device=q.device)
+            '''
+            cu_seqlens_q = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32,
+                                        device=q.device)
+            #cu_seqlens_k = torch.arange(0, (batch_size + 1) * seqlen_k, step=seqlen_k, dtype=torch.int32,
+            #                device=q.device)
+            cu_seqlens_k = cu_seqlens_q
+            is_causal = False
+            output = flash_attn_unpadded_func(
+                q, k, v, cu_seqlens_q, cu_seqlens_k, seqlen_q, seqlen_k,
+                dropout_p=0.0,
+                softmax_scale=False, causal=is_causal
+            )
+            '''
+            for _ in range(1000):
+                attn_output_ = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
+                attn_output_ = rearrange(attn_output_, 'b s h d -> b h s d')
+            '''
+            attn_output = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
+            attn_output = rearrange(attn_output, 'b s h d -> b h s d')
+            return attn_output, list() #attn_output, attn_weights
 
 
 def attention_mask_func(attention_scores, ltor_mask):
