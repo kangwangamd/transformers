@@ -261,7 +261,7 @@ class GPTNeoXAttention(nn.Module):
         use flash attention
         '''
         # assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
-                                                      'e.g., with pip install flash-attn')
+        #                                              'e.g., with pip install flash-attn')
         # assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
         '''
         for _ in range(100):
