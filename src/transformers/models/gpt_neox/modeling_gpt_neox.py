@@ -263,13 +263,6 @@ class GPTNeoXAttention(nn.Module):
         # assert flash_attn_unpadded_func is not None, ('Please install FlashAttention first, '
         #                                              'e.g., with pip install flash-attn')
         # assert rearrange is not None, 'Please install einops first, e.g., with pip install einops'
-        '''
-        for _ in range(100):
-            q_ = rearrange(query, 'b h s d -> b s h d')
-            k_ = rearrange(key, 'b h s d -> b s h d')
-            v_ = rearrange(value, 'b h s d -> b s h d')
-            q_, k_, v_ = [rearrange(x, 'b s ... -> (b s) ...') for x in [q_, k_, v_]]
-        '''
         if use_flash_att:
             q = rearrange(query, 'b h s d -> b s h d')
             k = rearrange(key, 'b h s d -> b s h d')
@@ -277,11 +270,6 @@ class GPTNeoXAttention(nn.Module):
             q, k, v = [rearrange(x, 'b s ... -> (b s) ...') for x in [q, k, v]]
         
         if not use_flash_att:
-            '''
-            for _ in range(100):
-                query_ = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
-                key_ = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
-            '''
             query = query.view(batch_size * num_attention_heads, query_length, attn_head_size)
             key = key.view(batch_size * num_attention_heads, key_length, attn_head_size)
     
@@ -326,16 +314,11 @@ class GPTNeoXAttention(nn.Module):
             '''
             use flash attention
             '''
-            # for _ in range(10):
-            #    q_, k_, v_ = q.half(), k.half(), v.half()
-            q, k, v = q.half(), k.half(), v.half()
+            # q, k, v = q.half(), k.half(), v.half()
             # assert all((i.dtype in [torch.float16, torch.bfloat16] for i in (q,k,v)))
             # assert all((i.is_cuda for i in (q,k,v)))
             seqlen_q = seqlen_k = query_length
-            '''
-            for _ in range(100):
-                cu_seqlens_q_ = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32, device=q.device)
-            '''
+            
             cu_seqlens_q = torch.arange(0, (batch_size + 1) * seqlen_q, step=seqlen_q, dtype=torch.int32,
                                         device=q.device)
             #cu_seqlens_k = torch.arange(0, (batch_size + 1) * seqlen_k, step=seqlen_k, dtype=torch.int32,
@@ -347,11 +330,6 @@ class GPTNeoXAttention(nn.Module):
                 dropout_p=0.0,
                 softmax_scale=False, causal=is_causal
             )
-            '''
-            for _ in range(1000):
-                attn_output_ = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
-                attn_output_ = rearrange(attn_output_, 'b s h d -> b h s d')
-            '''
             attn_output = rearrange(output, '(b s) ... -> b s ...', b=batch_size)
             attn_output = rearrange(attn_output, 'b s h d -> b h s d')
             return attn_output, list() #attn_output, attn_weights
