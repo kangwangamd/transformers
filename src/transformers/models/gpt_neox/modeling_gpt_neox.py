@@ -206,10 +206,8 @@ class GPTNeoXAttention(nn.Module):
         present = (key, value) if use_cache else None
 
         # Compute attention
-        use_flash_att = True
+        use_flash_att = False
         attn_output, attn_weights = self._attn(query, key, value, attention_mask, head_mask, use_flash_att)
-        # for _ in range(10):
-        #     at__, attn___ = self._attn(query, key, value, attention_mask, head_mask, use_flash_att)
 
         # Reshape outputs
         attn_output = self._merge_heads(attn_output, self.num_attention_heads, self.head_size)
