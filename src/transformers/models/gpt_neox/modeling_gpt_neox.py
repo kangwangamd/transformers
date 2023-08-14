@@ -244,7 +244,7 @@ class GPTNeoXAttention(nn.Module):
         # -> [bs, seq_len, hidden_size]
         return tensor
 
-    def _attn(self, query, key, value, attention_mask=None, head_mask=None):
+    def _attn(self, query, key, value, attention_mask=None, head_mask=None, use_flash_att=False):
         # q, k, v: [bs, num_attention_heads, seq_len, attn_head_size]
         # compute causal mask from causal mask buffer
         batch_size, num_attention_heads, query_length, attn_head_size = query.size()
